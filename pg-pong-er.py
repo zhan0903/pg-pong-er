@@ -25,6 +25,24 @@ else:
 grad_buffer = {k: np.zeros_like(v) for k, v in model.items()}  # update buffers that add up gradients over a batch
 rmsprop_cache = {k: np.zeros_like(v) for k, v in model.items()}  # rmsprop memory
 
+# Experience replay buffer
+class ExpBuffer():
+    def __init__(self, buffer_size = 50000):
+        self.buffer = []
+        self.buffer_size = buffer_size
+
+    def add(self, experience):
+        self.buffer.append(experience)
+        if len(self.buffer) > self.buffer_size:
+            self.buffer = self.buffer[int(0.0001 * self.buffer_size):]
+
+    def sample(self,size):
+        if len(self.buffer) >= size:
+            experience_buffer = self.buffer
+        else:
+            experience_buffer = self.buffer * size
+        return np.copy(np.reshape(np.array(random.sample(experience_buffer,size)),[size,4]))
+
 def sigmoid(x):
     return 1.0 / (1.0 + np.exp(-x))  # sigmoid "squashing" function to interval [0,1]
 
@@ -70,11 +88,13 @@ observation = env.reset()
 #print(observation)
 prev_x = None  # used in computing the difference frame
 xs, hs, dlogps, drs = [], [], [], []
-epx,eph,epdlogp,epr = [], [], [], []
+epx, eph, epdlogp, epr = [], [], [], []
 running_reward = None
 reward_sum = 0
 episode_number = 0
 guard = True
+buffer_size = 1e6
+buff = ExpBuffer(buffer_size)
 
 while True:
     if render: env.render()
@@ -110,8 +130,13 @@ while True:
         eph = np.vstack(hs)
         epdlogp = np.vstack(dlogps)
         epr = np.vstack(drs)
+
+        experience = np.reshape(np.array([epx, eph, epdlogp, epr]), [1, 4])
+        buff.add(experience)
+
+
         #print("epx,eph,epdlogp,epr:",epx,eph,epdlogp,epr)
-        #print("+++++++--------=======")
+        #print("length+++++++--------=======")
         #print(len(epx),len(eph),len(epdlogp),len(epr))
 
         xs, hs, dlogps, drs = [], [], [], []  #reset array memory
@@ -125,15 +150,36 @@ while True:
         #print("discounted_epr",discounted_epr,len(discounted_epr))
         #print("======================")
         epdlogp *= discounted_epr  # modulate the gradient with advantage (PG magic happens right here.)
-        #print("epdlogp",epdlogp,len(epdlogp))
+        #print("len epdlogp with advantage",len(epdlogp))
+
+
+        #experience = np.reshape(np.array([epx, eph, epdlogp, discounted_epr]), [1, 4])
+        #buff.add(experience)
+
         grad = policy_backward(eph, epdlogp)
         #print(grad)
         #print("======================")
-        for k in model: grad_buffer[k] += grad[k]  # accumulate grad over batch
-        #print(grad_buffer)
+        for k in model:
+            grad_buffer[k] += grad[k]  # accumulate grad over batch
 
         # perform rmsprop parameter update every batch_size episodes
         if episode_number % batch_size == 0:
+            experience_sample = buff.sample(size=128)
+            epx, eph, epdlogp, drs = [np.squeeze(elem, axis=1) for elem in np.split(experience, 4, 1)]
+
+
+            # compute the discounted reward backwards through time
+            discounted_epr = discount_rewards(epr)
+            # standardize the rewards to be unit normal (helps control the gradient estimator variance)
+            discounted_epr -= np.mean(discounted_epr)
+            discounted_epr /= np.std(discounted_epr)
+
+            epdlogp *= discounted_epr
+            grad = policy_backward(eph, epdlogp)
+            for k in model:
+                grad_buffer[k] += grad[k]
+
+
             for k, v in model.items():
                 g = grad_buffer[k]  # gradient
                 rmsprop_cache[k] = decay_rate * rmsprop_cache[k] + (1 - decay_rate) * g ** 2
