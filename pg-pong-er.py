@@ -65,14 +65,12 @@ def policy_backward(eph, epdlogp):
 def store_experiences(exps):
     pass
 
-
-
-
 env = gym.make("Pong-v0")
 observation = env.reset()
 #print(observation)
 prev_x = None  # used in computing the difference frame
 xs, hs, dlogps, drs = [], [], [], []
+epx,eph,epdlogp,epr = [], [], [], []
 running_reward = None
 reward_sum = 0
 episode_number = 0
@@ -112,9 +110,9 @@ while True:
         eph = np.vstack(hs)
         epdlogp = np.vstack(dlogps)
         epr = np.vstack(drs)
-        print("epx,eph,epdlogp,epr:",epx,eph,epdlogp,epr)
-        print("+++++++--------=======")
-        print(len(epx),len(eph),len(epdlogp),len(epr))
+        #print("epx,eph,epdlogp,epr:",epx,eph,epdlogp,epr)
+        #print("+++++++--------=======")
+        #print(len(epx),len(eph),len(epdlogp),len(epr))
 
         xs, hs, dlogps, drs = [], [], [], []  #reset array memory
 
