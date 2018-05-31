@@ -91,9 +91,6 @@ while True:
     # forward the policy network and sample an action from the returned probability
     aprob, h = policy_forward(x)
     action = 2 if np.random.uniform() < aprob else 3  # roll the dice!
-    #print("##############begin###############")
-    #print(type(h),len(h))## numpy.ndarray,200
-    #print("***************end****************")
 
     # record various intermediates (needed later for backprop)
     xs.append(x)  # observation
@@ -107,42 +104,41 @@ while True:
 
     #experience = np.array([x, h, y - aprob, reward])
     #buff.add(experience)
-    buff.add(x,h,y-aprob,reward,done)
     #buff.add(np.reshape(experience, [1, 4]))
 
     #drs.append(reward)  #record reward (has to be done after we call step() to get reward for previous action)
 
     if done:  # an episode finished
         episode_number += 1
-        # stack together all inputs, hidden states, action gradients, and rewards for this episode
-        #epx = np.vstack(xs)
-        #eph = np.vstack(hs)
-        #epdlogp = np.vstack(dlogps)
-        #epr = np.vstack(drs)
+        #stack together all inputs, hidden states, action gradients, and rewards for this episode
+        epx = np.vstack(xs)
+        eph = np.vstack(hs)
+        epdlogp = np.vstack(dlogps)
+        epr = np.vstack(drs)
 
-
+        buff.add(epx, eph, epdlogp, epr)
         xs, hs, dlogps, drs = [], [], [], []  #reset array memory
+
 
         # perform rmsprop parameter update every batch_size episodes
         if episode_number % batch_size == 0:
-            batch = buff.getBatch(BATCH_SIZE)
 
-            epx = np.asarray([e[0] for e in batch])
-            eph = np.asarray([e[1] for e in batch])
-            epdlogp = np.asarray([e[2] for e in batch])
-            epr = np.asarray([e[3] for e in batch])
+            batch = buff.getBatch(batch_size)
 
-            # compute the discounted reward backwards through time
-            discounted_epr = discount_rewards(epr)
-            # standardize the rewards to be unit normal (helps control the gradient estimator variance)
-            discounted_epr -= np.mean(discounted_epr)
-            discounted_epr /= np.std(discounted_epr)
+            for e in batch:
+                epx = e[0]
+                eph = e[1]
+                epdlogp = e[2]
+                epr = e[3]
+                # compute the discounted reward backwards through time
+                discounted_epr = discount_rewards(epr)
+                # standardize the rewards to be unit normal (helps control the gradient estimator variance)
+                discounted_epr -= np.mean(discounted_epr)
+                discounted_epr /= np.std(discounted_epr)
 
-            # modulate the gradient with advantage (PG magic happens right here.)
-            epdlogp *= discounted_epr
-            grad = policy_backward(eph, epdlogp)
-            for k in model:
-                grad_buffer[k] += grad[k]
+                epdlogp *= discounted_epr  # modulate the gradient with advantage (PG magic happens right here.)
+                grad = policy_backward(eph, epdlogp)
+                for k in model: grad_buffer[k] += grad[k]
 
             for k, v in model.items():
                 g = grad_buffer[k]  # gradient
