@@ -2,7 +2,6 @@
 import numpy as np
 import pickle
 import gym
-from Replay import ReplayBuffer
 
 # hyperparameters
 H = 200  # number of hidden layer neurons
@@ -13,11 +12,10 @@ decay_rate = 0.99  # decay factor for RMSProp leaky sum of grad^2
 resume = False  # resume from previous checkpoint?
 render = False
 
-
 # model initialization
 D = 80 * 80  # input dimensionality: 80x80 grid
 if resume:
-    model = pickle.load(open('save-er.p', 'rb'))
+    model = pickle.load(open('save.p', 'rb'))
 else:
     model = {}
     model['W1'] = np.random.randn(H, D) / np.sqrt(D)  # "Xavier" initialization
@@ -26,8 +24,10 @@ else:
 grad_buffer = {k: np.zeros_like(v) for k, v in model.items()}  # update buffers that add up gradients over a batch
 rmsprop_cache = {k: np.zeros_like(v) for k, v in model.items()}  # rmsprop memory
 
+
 def sigmoid(x):
     return 1.0 / (1.0 + np.exp(-x))  # sigmoid "squashing" function to interval [0,1]
+
 
 def prepro(I):
     """ prepro 210x160x3 uint8 frame into 6400 (80x80) 1D float vector """
@@ -37,6 +37,7 @@ def prepro(I):
     I[I == 109] = 0  # erase background (background type 2)
     I[I != 0] = 1  # everything else (paddles, ball) just set to 1
     return I.astype(np.float).ravel()
+
 
 def discount_rewards(r):
     """ take 1D float array of rewards and compute discounted reward """
@@ -48,12 +49,14 @@ def discount_rewards(r):
         discounted_r[t] = running_add
     return discounted_r
 
+
 def policy_forward(x):
     h = np.dot(model['W1'], x)
     h[h < 0] = 0  # ReLU nonlinearity
     logp = np.dot(model['W2'], h)
     p = sigmoid(logp)
     return p, h  # return probability of taking action 2, and hidden state
+
 
 def policy_backward(eph, epdlogp):
     """ backward pass. (eph is array of intermediate hidden states) """
@@ -63,23 +66,14 @@ def policy_backward(eph, epdlogp):
     dW1 = np.dot(dh.T, epx)
     return {'W1': dW1, 'W2': dW2}
 
-def store_experiences(exps):
-    pass
 
 env = gym.make("Pong-v0")
 observation = env.reset()
-#print(observation)
 prev_x = None  # used in computing the difference frame
 xs, hs, dlogps, drs = [], [], [], []
-epx, eph, epdlogp, epr = [], [], [], []
 running_reward = None
 reward_sum = 0
 episode_number = 0
-guard = True
-BUFFER_SIZE = 1e6
-BATCH_SIZE=128
-buff = ReplayBuffer(BUFFER_SIZE)
-
 while True:
     if render: env.render()
 
@@ -102,39 +96,30 @@ while True:
     observation, reward, done, info = env.step(action)
     reward_sum += reward
 
-    drs.append(reward)  #record reward (has to be done after we call step() to get reward for previous action)
+    drs.append(reward)  # record reward (has to be done after we call step() to get reward for previous action)
 
     if done:  # an episode finished
         episode_number += 1
-        #stack together all inputs, hidden states, action gradients, and rewards for this episode
+
+        # stack together all inputs, hidden states, action gradients, and rewards for this episode
         epx = np.vstack(xs)
         eph = np.vstack(hs)
         epdlogp = np.vstack(dlogps)
         epr = np.vstack(drs)
+        xs, hs, dlogps, drs = [], [], [], []  # reset array memory
 
-        buff.add(epx, eph, epdlogp, epr, done)
-        xs, hs, dlogps, drs = [], [], [], []  #reset array memory
+        # compute the discounted reward backwards through time
+        discounted_epr = discount_rewards(epr)
+        # standardize the rewards to be unit normal (helps control the gradient estimator variance)
+        discounted_epr -= np.mean(discounted_epr)
+        discounted_epr /= np.std(discounted_epr)
+
+        epdlogp *= discounted_epr  # modulate the gradient with advantage (PG magic happens right here.)
+        grad = policy_backward(eph, epdlogp)
+        for k in model: grad_buffer[k] += grad[k]  # accumulate grad over batch
 
         # perform rmsprop parameter update every batch_size episodes
         if episode_number % batch_size == 0:
-
-            batch = buff.getBatch(batch_size)
-            for e in batch:
-                epx = e[0]
-                eph = e[1]
-                epdlogp = e[2]
-                epr = e[3]
-
-                # compute the discounted reward backwards through time
-                discounted_epr = discount_rewards(epr)
-                # standardize the rewards to be unit normal (helps control the gradient estimator variance)
-                discounted_epr -= np.mean(discounted_epr)
-                discounted_epr /= np.std(discounted_epr)
-
-                epdlogp *= discounted_epr  # modulate the gradient with advantage (PG magic happens right here.)
-                grad = policy_backward(eph, epdlogp)
-                for k in model: grad_buffer[k] += grad[k]
-
             for k, v in model.items():
                 g = grad_buffer[k]  # gradient
                 rmsprop_cache[k] = decay_rate * rmsprop_cache[k] + (1 - decay_rate) * g ** 2
@@ -143,10 +128,10 @@ while True:
 
         # boring book-keeping
         running_reward = reward_sum if running_reward is None else running_reward * 0.99 + reward_sum * 0.01
-        print('resetting env. episode reward total was %f. running mean: %f' % (reward_sum, running_reward))
-        if episode_number % 100 == 0: pickle.dump(model, open('save-er.p', 'wb'))
+        print ('resetting env. episode reward total was %f. running mean: %f' % (reward_sum, running_reward))
+        if episode_number % 100 == 0: pickle.dump(model, open('save.p', 'wb'))
         reward_sum = 0
-        observation = env.reset()  #reset env
+        observation = env.reset()  # reset env
         prev_x = None
 
     if reward != 0:  # Pong has either +1 or -1 reward exactly when game ends.
