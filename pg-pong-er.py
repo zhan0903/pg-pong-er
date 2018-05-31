@@ -2,7 +2,7 @@
 import numpy as np
 import pickle
 import gym
-from ReplayBuffer import ReplayBuffer
+from Replay import ReplayBuffer
 
 # hyperparameters
 H = 200  # number of hidden layer neurons
