@@ -120,17 +120,17 @@ while True:
         #epdlogp = np.vstack(dlogps)
         #epr = np.vstack(drs)
 
-        #experience = np.array([epx, eph, epdlogp, epr])
-        #print("experience",experience)
-        #buff.add(experience)
 
         xs, hs, dlogps, drs = [], [], [], []  #reset array memory
 
         # perform rmsprop parameter update every batch_size episodes
         if episode_number % batch_size == 0:
             batch = buff.getBatch(BATCH_SIZE)
-            epx, eph, epdlogp, drs = [np.squeeze(elem, axis=1) for elem in np.split(experience, 4, 1)]
 
+            epx = np.asarray([e[0] for e in batch])
+            eph = np.asarray([e[1] for e in batch])
+            epdlogp = np.asarray([e[2] for e in batch])
+            epr = np.asarray([e[3] for e in batch])
 
             # compute the discounted reward backwards through time
             discounted_epr = discount_rewards(epr)
@@ -138,6 +138,7 @@ while True:
             discounted_epr -= np.mean(discounted_epr)
             discounted_epr /= np.std(discounted_epr)
 
+            # modulate the gradient with advantage (PG magic happens right here.)
             epdlogp *= discounted_epr
             grad = policy_backward(eph, epdlogp)
             for k in model:
