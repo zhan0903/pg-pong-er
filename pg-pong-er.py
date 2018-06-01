@@ -77,7 +77,7 @@ reward_sum = 0
 episode_number = 0
 guard = True
 BUFFER_SIZE = 1e6
-BATCH_SIZE=128
+BATCH_SIZE = 128
 buff = ReplayBuffer(BUFFER_SIZE)
 
 while True:
@@ -120,6 +120,7 @@ while True:
 
             batch = buff.getBatch(batch_size)
             for e in batch:
+
                 epx = e[0]
                 eph = e[1]
                 epdlogp = e[2]
@@ -143,11 +144,12 @@ while True:
 
         # boring book-keeping
         running_reward = reward_sum if running_reward is None else running_reward * 0.99 + reward_sum * 0.01
-        print('resetting env. episode reward total was %f. running mean: %f' % (reward_sum, running_reward))
+        print('ep %d: resetting env. episode reward total was %f. running mean: %f' %
+              (episode_number-1, reward_sum, running_reward))
         if episode_number % 100 == 0: pickle.dump(model, open('save-er.p', 'wb'))
         reward_sum = 0
         observation = env.reset()  #reset env
         prev_x = None
 
-    if reward != 0:  # Pong has either +1 or -1 reward exactly when game ends.
-        print('ep %d: game finished, reward: %f' % (episode_number, reward) + str('' if reward == -1 else ' !!!!!!!!'))
+    #if reward != 0:  # Pong has either +1 or -1 reward exactly when game ends.
+    #    print('ep %d: game finished, reward: %f' % (episode_number, reward) + str('' if reward == -1 else ' !!!!!!!!'))
